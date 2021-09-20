@@ -35,10 +35,10 @@ This script supports three modes to determine the new IPv6 address.
 Examples URL for Router Fritzbox:
 - Server IP: 10.10.10.10
 - Port: 80
-- http://10.10.10.10:80/path/to/script/example.php?domains=<domain>,second.domain.com,third.domain.com&ip4addr=<ipaddr>&determineip6=true
-- http://10.10.10.10:80/path/to/script/example.php?domains=<domain>,second.domain.com&ip4addr=<ipaddr>&ip6prefix=<ip6lanprefix>&ip6addr=2a00:1450:4005:80a::200e
+- "http://10.10.10.10:80/path/to/script/example.php?domains=<domain>,second.domain.com,third.domain.com&ip4addr=<ipaddr>&determineip6=true"
+- "http://10.10.10.10:80/path/to/script/example.php?domains=<domain>,second.domain.com&ip4addr=<ipaddr>&ip6prefix=<ip6lanprefix>&ip6addr=2a00:1450:4005:80a::200e"
 
-The parameter in <> will be replaced by the Router.
+The parameters in <> will be replaced by the Router.
 
 The script was tested with a Fritzbox 3390. This model does not support the newer variable <ip6lanprefix>. 
 Therefore the server has to determine the IPv6 address itself. Newer models could use the variable <iP6lanprefix>.
