@@ -4,14 +4,15 @@ This is a php-script to update DNS records through registrars API. At the moment
 To use this script, copy this script and the "vendor" dir to a webdir and create a php file, that calls this script.
 
 Example: example.php
-
-`<?php
+```
+<?php
 require "inc/DnsUpdate.php";
  
 header('Content-type: text/plain; charset=utf-8');
 $updater = new \DnsUpdate\DnsUpdate_INWX();
 $updater->updateDnsRecord();
-?>`
+?>
+```
 
 Configure your Router to call this script to update the DNS Record (Dynamic DNS Function). The script may be called with the 
 following parameters.
