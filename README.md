@@ -41,7 +41,7 @@ Example URLs for Router Fritzbox:
 The parameters in \<\> will be replaced by the router.
 
 The script was tested with a Fritzbox 3390. This model does not support the newer variable \<ip6lanprefix\>. 
-Therefore the server has to determine the IPv6 address itself. Newer models could use the variable \<iP6lanprefix\>.
+Therefore the server has to determine the IPv6 address itself. Newer models could use the variable \<ip6lanprefix\>.
 
 tip:
 The server needs some time to update its own ip. The script sleeps therefor a few seconds. If the script times out, then you want to increase the time the script is allowed to run. In nginx this can be done with the following parameter: fastcgi_read_timeout 140s;
