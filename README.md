@@ -16,22 +16,16 @@ $updater->updateDnsRecord();
 
 Configure your Router to call this script to update the DNS Record (Dynamic DNS Function). The script may be called with the 
 following parameters.
-
-domains = A domain or a comma seperated list without whitespaces of domains, which records should be updated.
-
-ip4addr = The new IPv4 address. Can be left out if not needed. Example format: 142.250.181.206
-
-ip6prefix = The prefix of the new IPv6 address. The prefix will be combined with given IPv6 address. 
+- domains = A domain or a comma seperated list without whitespaces of domains, which records should be updated.
+- ip4addr = The new IPv4 address. Can be left out if not needed. Example format: 142.250.181.206
+- ip6prefix = The prefix of the new IPv6 address. The prefix will be combined with given IPv6 address. 
         Can be left out if not needed. Fromat example: 2a00:1450:4005:80a::/64
-
-ip6addr = The new IPv6 address. If the parameter "ip6prefix" is defined, then only the identifier-part of this IP 
+- ip6addr = The new IPv6 address. If the parameter "ip6prefix" is defined, then only the identifier-part of this IP 
         will be used and combined with the prefix from the parameter "ip6prefix".
         Format example: 2a00:1450:4005:80a:0000:0000:0000:200e
-
-determineip6= If "true", then the IPv6 will be determined by the ip-command on the host linux machine.
+- determineip6= If "true", then the IPv6 will be determined by the ip-command on the host linux machine.
         The parameter "ip6prefix" and "ip6addr" will be ignored.
-
-key= A key that may be needed to login into the API-account on some registrars.
+- key= A key that may be needed to login into the API-account on some registrars.
 
 This script supports three modes to determine the new IPv6 address.
 1 The new address is handed over in the parameter "ip6addr".
