@@ -36,7 +36,7 @@ Example URLs for Router Fritzbox:
 - Server IP: 10.10.10.10
 - Port: 80
 - "http://10.10.10.10:80/path/to/script/example.php?domains=<domain>,second.domain.com,third.domain.com&ip4addr=<ipaddr>&determineip6=true"
-- "http://10.10.10.10:80/path/to/script/example.php?domains=<domain>,second.domain.com&ip4addr=<ipaddr>&ip6prefix=<ip6lanprefix>&ip6addr=2a00:1450:4005:80a::200e"
+- "http://10.10.10.10:80/path/to/script/example.php?domains=<domain>,second.domain.com&ip4addr=\<ipaddr\>&ip6prefix=<ip6lanprefix>&ip6addr=2a00:1450:4005:80a::200e"
 
 The parameters in <> will be replaced by the router.
 
