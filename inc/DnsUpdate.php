@@ -51,6 +51,9 @@ Library version used:
 "inwx/domrobot": "^3.2"
 
 
+tip:
+The server needs some time to update its own ip. The script sleeps therefor a few seconds. If the script times out, then you want to increase the time the script is allowed to run. In nginx this can be done with the following parameter: fastcgi_read_timeout 140s;
+
 **/
 
 
@@ -78,7 +81,7 @@ abstract class DnsUpdate{
     private const MASKZERO = 0x0000;
     
     // time to wait to give the server time to get a new ipv6 address.
-    private const WAITFORNEWIP = 30; // in seconds
+    private const WAITFORNEWIP = 10; // in seconds
     // max time that communication with the api is allowed to take
     private const TIMELIMIT_API = 120; // in seconds
     
