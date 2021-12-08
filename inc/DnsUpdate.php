@@ -372,11 +372,6 @@ abstract class DnsUpdate{
             error_log("DnsUpdateinwx.php: Failure: $logmessage");
         }
     }
-    private function handleError(int $httpcode, Error $e) {
-        http_response_code($httpcode);
-        $txt = "DnsUpdateinwx.php: Error: {$e->getFile()} : {$e->getLine()} : {$e->getMessage()}";
-        error_log($txt);
-    }
     private function handleException(int $httpcode, Exception $e) {
         http_response_code($httpcode);
         $txt = "DnsUpdateinwx.php: Exception: {$e->getFile()} : {$e->getLine()} : {$e->getMessage()}";
