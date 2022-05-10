@@ -19,17 +19,19 @@ https://helga:12345@192.168.1.15:5555/path/to/script/dnsupdate.php
 ?key=4411&domain1=test1.mydomain.com,142.251.40.238,2607:f8b0:4005:808::200e,0,false&domain2=test2.mydomain.com,172.217.5.110,0,0,true&domain3= test3.mydomain.com  
 
 
-### Parameter:
+### Valid URL Parameter:
 <pre>
 key         : Not used yet.  
+user        : Username for the registrar account.  
+password    : Password for the registrar account.  
 domain1     : Data for the first domain. Up to 50 domains are supported.  
 domain2     : Data for the second domain.  
 </pre>
 
 ### Placeholder:
 <pre>
-user            : Username of the user account.  
-password        : Password of the user account.  
+user            : Username of the registrar account.  
+password        : Password of the registrar account.  
 webserver_ip    : IP of the webserver on which the php script is hosted.  
 webserver_port  : Port of the webserver on which the php script is hosted.  
 account_key     : Not used yet.  
@@ -79,5 +81,5 @@ In the URL following placeholders can be used and will be replaced by the Fritzb
 ### Example for a Fritzbox URL:
 
 http://192.168.1.15:5555/path/to/script/dnsupdate.php
-?key=4411&domain1=<domain\>,<ipaddr\>,<ip6addr\>,0,false&domain2=test2.mydomain.com,<ipaddr\>,0,0,true&domain3= test3.mydomain.com
+?key=4411&domain1=<domain\>,<ipaddr\>,<ip6addr\>,0,false&domain2=test2.mydomain.com,<ipaddr\>,0,0,true&domain3=test3.mydomain.com
 

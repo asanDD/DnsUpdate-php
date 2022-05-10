@@ -3,8 +3,8 @@ namespace DnsUpdate;
 
 /**
 Author:     ASAN
-Date:       08.05.2022
-Version:    001.021
+Date:       11.05.2022
+Version:    001.022
 
 A php-script to update name server records. At the moment only the registrar INWX is supported.
 
@@ -24,17 +24,19 @@ https://helga:12345@192.168.1.15:5555/path/to/script/dnsupdate.php
 ?key=4411&domain1=test1.mydomain.com,142.251.40.238,2607:f8b0:4005:808::200e,0,false&domain2=test2.mydomain.com,172.217.5.110,0,0,true&domain3= test3.mydomain.com
 
 
-Parameter:
+Valid URL Parameter:
 
 key         : Not used yet.
+user        : Username for the registrar account.
+password    : Password for the registrar account.
 domain1     : Data for the first domain. Up to 50 domains are supported.
 domain2     : Data for the second domain.
 
 
 Placeholder:
 
-user            : Username of the user account.
-password        : Password of the user account.
+user            : Username of the registrar account.
+password        : Password of the registrar account.
 webserver_ip    : IP of the webserver on which the php script is hosted.
 webserver_port  : Port of the webserver on which the php script is hosted.
 account_key     : Not used yet.
@@ -70,8 +72,7 @@ In the URL following placeholders can be used and will be replaced by the Fritzb
 Example for a Fritzbox URL:
 
 http://192.168.1.15:5555/path/to/script/dnsupdate.php
-?key=4411&domain1=<domain>,<ipaddr>,<ip6addr>,0,false&domain2=test2.mydomain.com,<ipaddr>,0,0,true&domain3= test3.mydomain.com
-
+?key=4411&domain1=<domain>,<ipaddr>,<ip6addr>,0,false&domain2=test2.mydomain.com,<ipaddr>,0,0,true&domain3=test3.mydomain.com
 
 
 
@@ -80,24 +81,13 @@ Library version used:
 "monolog/logger": "2.3.2"
 "psr/log": "^1.0.1"
 
-
-
-
-ToDo:
-
-- optional username and password as parameter
-- make ipv6 not mandatory if the ipv6 of the first domain is left empty. Just update IPv4 then.
-- Check first if IPs are different before updating.
-- Write error messages and handle the situation if the connection to the account was not successful.
-- Improve error messages. Are line numbers needed?
-
-
 **/
 
 // autoloader for classes.
 spl_autoload_register(function ($class) {
-    $file = 'inc/' . str_replace('\\', DIRECTORY_SEPARATOR, $class) . '.php';
-    if (file_exists(__DIR__.'/'.$file)) {
+    $include_dir = 'inc/';
+    $file = $include_dir . str_replace('\\', DIRECTORY_SEPARATOR, $class) . '.php';
+    if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . $file)) {
         require $file;
         return true;
     }
@@ -115,12 +105,17 @@ class ConnectionException extends Exception {};
 
 // Data class used in the class DnsUpdate.
 class DomainData {
-    public $domain = "";
-    public $ip4Addr = 0;
-    public $ip6Addr = 0;
-    public $ip6Prefix = 0;
-    public $ip6PrefixMaskLength = 0;
-    public $determineIp6 = false;
+    public string $domain = "";
+    public string $ip4Addr = "0";
+    public string $ip6Addr = "0";
+    public string $ip6Prefix = "0";
+    public int $ip6PrefixMaskLength = 0;
+    public bool $determineIp6 = false;
+    
+    public int $ip4RecordID = -1;
+    public int $ip6RecordID = -1;
+    public string $ip4Old = "0";
+    public string $ip6Old = "0";
 }
 
 
@@ -131,13 +126,9 @@ class DomainData {
 **/
 abstract class DnsUpdate{
     
+    private const CODE_OK = 200;
     private const CODE_BADREQUEST = 400;
     private const CODE_INTERNALSERVERERROR = 500;
-    
-    private const IPV6INTCOUNT = 8;
-    private const IPV6INTBIT = 16;
-    private const MASKONE = 0xffff;
-    private const MASKZERO = 0x0000;
     
     // time to wait to give the server time to get a new ipv6 address.
     private const WAITFORNEWIP = 10; // in seconds
@@ -167,47 +158,37 @@ abstract class DnsUpdate{
             $result = false;
             $no_following_domain = false;
             
-            // GET username and password from $_SERVER
-            if (isset($_SERVER['PHP_AUTH_USER'])) {
-                $user = filter_var($_SERVER['PHP_AUTH_USER'], FILTER_SANITIZE_STRING);
-                if ($user == false) {
-                    throw new ValueException('Not allowed signs in user name.');
-                }
-                if ($user == "") {
-                    throw new ValueException('No user name provided.');
-                }
+            // GET username and password from
+            if (isset($_SERVER['PHP_AUTH_USER']) && isset($_SERVER['PHP_AUTH_PW'])) {
+                $user = $_SERVER['PHP_AUTH_USER'];
+                $pass = $_SERVER['PHP_AUTH_PW'];
             } else {
+                // try to get username and password through url parameter.
+                if (isset($_GET['user']) && isset($_GET['password'])) {
+                    $user = $_GET['user'];
+                    $pass = $_GET['password'];
+                }
+            }
+            if (($user == "") || ($pass == "")) {
                 // ask client for username and password.
                 header('WWW-Authenticate: Basic realm="INWX API Access"');
                 header('HTTP/1.0 401 Unauthorized');
+                header('Content-type: text/plain; charset=utf-8');
+                echo 'No user or password provided.';
                 return false;
-            }
-            if (isset($_SERVER['PHP_AUTH_PW'])) {
-                $pass = filter_var($_SERVER['PHP_AUTH_PW'], FILTER_SANITIZE_STRING);
-                if ($pass == false) {
-                    throw new ValueException('Not allowed signs in password.');
-                }
-                if ($pass == "") {
-                    throw new ValueException('No password provided.');
-                }
-            } else {
-                // ask client for username and password.
-                header('WWW-Authenticate: Basic realm="INWX API Access"');
-                header('HTTP/1.0 401 Unauthorized');
-                return false;
-            }
+            }          
             
             // GET parameter key from URL
             if (isset($_GET['key'])) {
-                $key = filter_input(INPUT_GET, 'key', FILTER_SANITIZE_STRING);
+                $key = $_GET['key'];
             }
             
             // GET and interpret domain parameters from the URL
             for ($i = self::BEGIN_NUMBER_DOMAINS; ($i <= self::MAX_NUMBER_DOMAINS) && !$no_following_domain; $i++) {
                 $url_param_name = 'domain' . $i;
                 if (isset($_GET[$url_param_name])) {
-                    $domainDataStr = filter_input(INPUT_GET, $url_param_name, FILTER_SANITIZE_STRING);
-                    $this->storeDomainParameterData($domainDataStr, ($i - 1), $domainDataArr);
+                    $domainDataStr = $_GET[$url_param_name];
+                    $this->storeDomainParameterData($domainDataStr, $i, $domainDataArr);
                 }
                 else {
                     // if no following domain URL parameter is found, then break the loop.
@@ -215,10 +196,12 @@ abstract class DnsUpdate{
                 } 
             }
             
-            // determine the IPv6 if requested in the URL parameters.
-            $this->determineIp6($domainDataArr);
             //set timelimit for execution.
             set_time_limit(self::TIMELIMIT_API);
+            
+            // determine the IPv6 if requested in the URL parameters.
+            $this->determineIp6($domainDataArr);
+            
             $result = $this->sendDataViaApi($domainDataArr, $user, $pass, $key);
         
         }
@@ -263,8 +246,8 @@ abstract class DnsUpdate{
     * determineIPv6:   If empty, then the data of the previous data set will be copied. Set to false if you don't want the IPv6 to be determined. Default is false.
     *
     * @param string $domainDataStr      : The string from the URL parameter that contains the domain data
-    * @param int    $domainIndex        : The number of the domain data. Start with 0.
-    * @param array  $domainDataArr      : DomainData object will be stored here at domainIndex.
+    * @param int    $domainIndex        : The number of the domain data. Start with 1.
+    * @param array  $domainDataArr      : DomainData object will be stored here at (domainIndex - 1). The array starts at index 0.
     * @return                           : false if domainData is empty.
     * @throw ValueException             : if a failure during the interpretation of the data occured.
     **/
@@ -286,87 +269,72 @@ abstract class DnsUpdate{
                     case self::DPOS_DOMAIN:
                         $domainData->domain = filter_var($explodeArray[$i], FILTER_VALIDATE_DOMAIN);
                         if ($domainData->domain == false) {
-                            throw new ValueException('Domain not valid.');
+                            throw new ValueException('Domain' . $domainIndex . ' : Domain is not valid.');
                         }
                         if ($domainData->domain == "") {
-                            throw new ValueException('No domain name provided.');
+                            throw new ValueException('Domain' . $domainIndex . ' : No domain name provided.');
                         }
                         break;
                     case self::DPOS_IPV4:
                         switch ($explodeArray[$i]) {
                             case "0":
-                                $domainData->ip4Addr = "0";
                                 break;
                             case "":
-                                if ($domainIndex > 0) {
-                                    $domainData->ip4Addr = $domainDataArr[$domainIndex - 1]->ip4Addr;
+                                if ($domainIndex > 1) {
+                                    $domainData->ip4Addr = $domainDataArr[$domainIndex - 2]->ip4Addr;
                                 } 
-                                else {
-                                    throw new ValueException('No IPv4 provided.');
-                                }
                                 break;
                             default:
                                 $domainData->ip4Addr = filter_var($explodeArray[$i], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4);
                                 if ($domainData->ip4Addr == false) {
-                                    throw new ValueException('IPv4 is not valid.');
+                                    throw new ValueException('Domain' . $domainIndex . ' : IPv4 is not valid.');
                                 }
                         }
                         break;
                     case self::DPOS_IPV6:
                         switch ($explodeArray[$i]) {
                             case "0":
-                                $domainData->ip6Addr = "0";
                                 break;
                             case "":
-                                if ($domainIndex > 0) {
-                                    $domainData->ip6Addr = $domainDataArr[$domainIndex - 1]->ip6Addr;
+                                if ($domainIndex > 1) {
+                                    $domainData->ip6Addr = $domainDataArr[$domainIndex - 2]->ip6Addr;
                                 } 
-                                else {
-                                    throw new ValueException('No IPv6 provided.');
-                                }
                                 break;
                             default:
                                 $domainData->ip6Addr = filter_var($explodeArray[$i], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
                                 if ($domainData->ip6Addr == false) {
-                                    throw new ValueException('IPv6 is not valid.');
+                                    throw new ValueException('Domain' . $domainIndex . ' : IPv6 is not valid.');
                                 }
                         }
                         break;
                     case self::DPOS_IPV6PREFIX:
                         switch ($explodeArray[$i]) {
                             case "0":
-                                $domainData->ip6Prefix = "0";
                                 break;
                             case "":
-                                if ($domainIndex > 0) {
-                                    $domainData->ip6Prefix = $domainDataArr[$domainIndex - 1]->ip6Prefix;
-                                    $domainData->ip6PrefixMaskLength = $domainDataArr[$domainIndex - 1]->ip6PrefixMaskLength;
+                                if ($domainIndex > 1) {
+                                    $domainData->ip6Prefix = $domainDataArr[$domainIndex - 2]->ip6Prefix;
+                                    $domainData->ip6PrefixMaskLength = $domainDataArr[$domainIndex - 2]->ip6PrefixMaskLength;
                                 } 
-                                else {
-                                    throw new ValueException('No IPv6 prefix provided.');
-                                }
                                 break;
                             default:
                                 $ip6PrefixStr = $explodeArray[$i];
                                 $ip6PrefixArr = explode("/", $ip6PrefixStr,2);
                                 $domainData->ip6Prefix = filter_var($ip6PrefixArr[0], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
                                 if ($domainData->ip6Prefix == false) {
-                                    throw new ValueException('IPv6 prefix not valid.');
+                                    throw new ValueException('Domain' . $domainIndex . ' : IPv6 prefix not valid.');
                                 } 
                                 $domainData->ip6PrefixMaskLength = filter_var($ip6PrefixArr[1], FILTER_VALIDATE_INT);
                                 if ($domainData->ip6PrefixMaskLength == false || $domainData->ip6PrefixMaskLength < 1 || $domainData->ip6PrefixMaskLength > 128) {
-                                    throw new ValueException('IPv6 prefix mask length is not valid.');
+                                    throw new ValueException('Domain' . $domainIndex . ' : IPv6 prefix mask length is not valid.');
                                 }
                         }
                         break;
                      case self::DPOS_DETERMINEIPV6:
                         switch ($explodeArray[$i]) {
                             case "":
-                                if ($domainIndex > 0) {
-                                    $domainData->determineIp6 = $domainDataArr[$domainIndex - 1]->determineIp6;
-                                } 
-                                else {
-                                    $domainData->determineIp6 = false;
+                                if ($domainIndex > 1) {
+                                    $domainData->determineIp6 = $domainDataArr[$domainIndex - 2]->determineIp6;
                                 }
                                 break;
                             default:
@@ -376,7 +344,7 @@ abstract class DnsUpdate{
                     default:
                 }
             }
-            $domainDataArr[$domainIndex] = $domainData;
+            $domainDataArr[$domainIndex - 1] = $domainData;
             return true;
         }
         else {
@@ -404,11 +372,10 @@ abstract class DnsUpdate{
                 }
                 $domainData->ip6Addr = $ipv6;
             }
-            else if (($domainData->ip6Addr != "0") && ($domainData->ip6Prefix != "0")) {
-                $this->changePrefixOfIpv6($domainData);
-            }
+            // if a IPv6 prefix is given, then add the prefix to the ipv6 address.
+            $this->changePrefixOfIpv6($domainData);
+            // else: take ipv6 from url parameter
         }
-        // else: take ipv6 from url parameter
     }
     
     
@@ -430,126 +397,73 @@ abstract class DnsUpdate{
         }
         $global_ipv6 = filter_var($global_ipv6, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
         if (!$global_ipv6) {
-            throw new FunctionException('Ip determined with "ip" command is invalid.');
+            throw new FunctionException('The IPv6 determined by the server using the "ip" command is not valid.');
         }
         return $global_ipv6;
     }
     
     
     /**
-    * Build an ipv6 from an ipv6 and a ipv6-prefix
+    * Build the IPv6 address from the IPv6 address and the IPv6 prefix in the domain data.
     *
-    * @param DomainData $domainData : The dataset in which the prefix of the ipv6 should be changend.
-    * @throw FunctionException      : if created ipv6 is invalid.
+    * @param DomainData $domainData : The dataset in which the prefix of the IPv6 should be changend.
+    * @throw FunctionException      : if the created IPv6 is invalid.
     */
     private function changePrefixOfIpv6(DomainData &$domainData) {
         
-        $ipv6 = $domainData->ip6Addr;
-        $prefix = $domainData->ip6Prefix;
-        $prefixLength = $domainData->ip6PrefixMaskLength;
-        $ipv6Arr;
-        $prefixArr;
-        $subnetmask;
-        
-        // convert ip and prefix to arrays that represent that the ips.
-        $ipv6Arr = $this->ipStringToArray($ipv6);
-        $prefixArr = $this->ipStringToArray($prefix);
-        
-        // create subnetmask from prefix
-        // determine position of first non static bit
-        $index = intdiv($prefixLength, self::IPV6INTBIT);
-        $bit = $prefixLength % self::IPV6INTBIT;
-        // fill subnet mask with 1
-        $subnetmask = array_fill(0, self::IPV6INTCOUNT, self::MASKONE);
-        $bitmask = self::MASKONE;
-        // fill subnetmask with zeros beginning at the first non static bit
-        if ($bit > 0) {
-            $bitmask = (($bitmask << (self::IPV6INTBIT - $bit)) &  self::MASKONE);
-            $subnetmask[$index] = $bitmask;
-            $index++;
-        }
-        $bitmask = self::MASKZERO;
-        for (; $index < self::IPV6INTCOUNT; $index++) {
-            $subnetmask[$index] = $bitmask;
-        }
-        
-        // combine ipv6 and prefix dependend on the subnetmask.
-        for ($index = 0; $index < self::IPV6INTCOUNT; $index++) {
-            $ipv6Arr[$index] = ($subnetmask[$index] & $prefixArr[$index]) | ((~ $subnetmask[$index]) & $ipv6Arr[$index]);
-        }
-        
-        // convert the ip array back to a string
-        $domainData->ip6Addr = $this->ipArrayToString($ipv6Arr);
-    }
-    
-    
-    /**
-    * Converts an ipv6 address string to an array that contains the ip.
-    * The array contains 8 elements that contain a 16bit integer each. These elements represent
-    * the ipv6. The array starts with index = 0.
-    *
-    * @param string $ipv6   : ipv6 address string like 2a00:1450:4005:80a:0000:0000:0000:200e
-    * @return               : An array of 8 16bit integer that represent the ipv6.
-    */
-    private function ipStringToArray(string $ipv6):array {
-        $arr = array_fill(0, self::IPV6INTCOUNT, self::MASKZERO);
-        $ipParts = explode(":", $ipv6);
-        $ipPartsCount = count($ipParts);
-        $index = 0;
-        foreach ($ipParts as $ipPart) {
-            // convert ipv6 string into an array of 8 16bit integer
-            if ($ipPart != "") {
-                $arr[$index] = hexdec($ipPart);
-                $index++;
-            } else {
-                // if an :: was found in inputIp, then fill with as much zeros as needed to create
-                // a ipv6 with 8 16bit integer
-                $zerosIndex = self::IPV6INTCOUNT - $ipPartsCount + 1 + $index;  // +1 -> One of the parts is an empty string
-                for (; $index < $zerosIndex; $index++) {
-                    $arr[$index] = 0;
-                }
+        if ($domainData->ip6Addr != "0" && $domainData->ip6Prefix != "0" && $domainData->ip6PrefixMaskLength != 0) {
+            $ipv6 = $domainData->ip6Addr;
+            $ipv6Prefix = $domainData->ip6Prefix;
+            $ipv6PrefixLength = $domainData->ip6PrefixMaskLength;
+            $bitsPerArrayElement = 16;
+            $numberElementsIpv6Array = 8;
+            $maskOne = 0xffff;
+            $maskZero = 0x0000;
+            $ipv6Array = unpack('n*', inet_pton($ipv6), 0); // array starts with 1
+            $ipv6PrefixArray = unpack('n*', inet_pton($ipv6Prefix), 0); // array starts with 1
+            
+            // create the subnetmask from prefix
+            // fill subnet mask with 1
+            $subnetmask = array_fill(1, $numberElementsIpv6Array, $maskOne);
+            // determine position of first zero in the subnetmask.
+            $arrIndex = intdiv($ipv6PrefixLength, $bitsPerArrayElement) + 1;
+            $bit = $ipv6PrefixLength % $bitsPerArrayElement;
+            // fill subnetmask with zeros
+            $bitmask = $maskOne;
+            if ($bit > 0) {
+                $bitmask = (($bitmask << ($bitsPerArrayElement - $bit)) & $maskOne);
+                $subnetmask[$arrIndex] = $bitmask;
+                $arrIndex++;
+            }
+            for (; $arrIndex <= $numberElementsIpv6Array; $arrIndex++) {
+                $subnetmask[$arrIndex] = $maskZero;
+            }
+            
+            // combine ipv6 and prefix based on the subnetmask.
+            for ($arrIndex = 1; $arrIndex <= $numberElementsIpv6Array; $arrIndex++) {
+                $ipv6Array[$arrIndex] = ($subnetmask[$arrIndex] & $ipv6PrefixArray[$arrIndex]) | ((~ $subnetmask[$arrIndex]) & $ipv6Array[$arrIndex]);
+            }
+            // convert IPv6 back into a readable format.
+            $ipv6 = inet_ntop(pack('n*', $ipv6Array[1], $ipv6Array[2], $ipv6Array[3], $ipv6Array[4], $ipv6Array[5], $ipv6Array[6], $ipv6Array[7], $ipv6Array[8]));
+            // check ipv6
+            $ipv6 = filter_var($ipv6, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
+            if (!$ipv6) {
+                throw new FunctionException("The created IPv6 is not valid.");
+            }
+            else {
+                $domainData->ip6Addr = $ipv6;
             }
         }
-        return $arr;
-    }
+    }    
     
-    /**
-    * Converts an array of 8 16bit integer that represents an ipv6 to a string.
-    * Format example: 2a00:1450:4005:80a:0000:0000:0000:200e
-    *
-    * @param array $ipArr       : The array that represents an ipv6
-    * @return                   : A string of an ipv6.
-    * @throw FunctionException  : If the created ipv6 string is not valid.
-    */
-    private function ipArrayToString(array $ipArr):string {
-        $str = "";
-        $count = count($ipArr);
-        $index = 1;
-        $result = "";
-        foreach ($ipArr as $ipPart) {
-            $str .= dechex($ipPart);
-            if ($index < self::IPV6INTCOUNT) {
-                $str .= ":";
-            }
-            $index++;
-        }
-        $result = filter_var($str, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
-        if (!$result) {
-            throw new FunctionException("Created ip $str is not valid.");
-        }
-        return $result;
-    }
     
-    protected function handleFailure(int $httpcode, string $logmessage) {
-        http_response_code($httpcode);
-        if (!empty($logmessage)) {
-            error_log("DnsUpdateinwx.php: Failure: $logmessage");
-        }
-    }
     protected function handleException(int $httpcode, Exception $e) {
-        http_response_code($httpcode);
         $txt = "DnsUpdateinwx.php: Exception: {$e->getFile()} : {$e->getLine()} : {$e->getMessage()}";
         error_log($txt);
+        
+        header('Content-type: text/plain; charset=utf-8');
+        http_response_code($httpcode);
+        echo $e->getMessage();
     }
 }
 
@@ -574,6 +488,10 @@ class DnsUpdate_INWX extends DnsUpdate{
     {
         // connect
         $recordId = -1;
+        $sharedSecret = null;
+        if ($key != "") {
+            $sharedSecret = $key;
+        }
         $domrobot = new \INWX\Domrobot();
         
         $result = $domrobot->setLanguage('en')
@@ -587,26 +505,31 @@ class DnsUpdate_INWX extends DnsUpdate{
             //->useXml()
             // debug will let you see everything you're sending and receiving
             // ->setDebug(true)
-            ->login($user, $pass);
+            ->login($user, $pass, $sharedSecret);
         
         // update record for each domain
-        if ($result['code'] == 1000) {
+        if (!empty($result) && array_key_exists('code', $result) && ($result['code'] == 1000)) {
             foreach ($domainDataArr as $domainData) {
-                // error_log($domainData->domain . " " . $domainData->ip4Addr . " " . $domainData->ip6Addr . " " . $domainData->ip6Prefix . " " . $domainData->ip6PrefixMaskLength . " " . ($domainData->determineIp6 ? 'true' : 'false'));
+                $this->requestRecordInfo($domrobot, $domainData);
                 
-                $recordId = $this->requestRecordId($domrobot, $domainData->domain);
-                if (($recordId["ipv4"] > -1) && ($domainData->ip4Addr != "0")) {
-                    $this->updateRecord($domrobot, $recordId["ipv4"], $domainData->ip4Addr);
+                /**
+                error_log($domainData->domain . " " . $domainData->ip4Addr . " " . $domainData->ip6Addr . " " . $domainData->ip6Prefix . " " . $domainData->ip6PrefixMaskLength
+                . " " . ($domainData->determineIp6 ? 'true' : 'false') . " " . $domainData->ip4Old . " " . $domainData->ip4RecordID . " " . $domainData->ip6Old . " " . $domainData->ip6RecordID);
+                **/
+                
+                // update ipv4
+                if (($domainData->ip4Addr != "0") && ($domainData->ip4RecordID > -1) && ($domainData->ip4Addr != $domainData->ip4Old)) {
+                    $this->updateRecord($domrobot, $domainData->ip4RecordID, $domainData->ip4Addr);
                 }
-                if (($recordId["ipv6"] > -1) && ($domainData->ip6Addr != "0")) {
-                    $this->updateRecord($domrobot, $recordId["ipv6"], $domainData->ip6Addr);
+                // update ipv6
+                if (($domainData->ip6Addr != "0") && ($domainData->ip6RecordID > -1) && ($domainData->ip6Addr != $domainData->ip6Old)) {
+                    $this->updateRecord($domrobot, $domainData->ip6RecordID, $domainData->ip6Addr);
                 }
-            
             }
             // disconnect
             $domrobot->logout();
         } else {
-            throw new ConnectionException("Connection error occured.");
+            throw new ConnectionException("Could not login to the account.");
             return false;
         }
         return true;
@@ -614,19 +537,14 @@ class DnsUpdate_INWX extends DnsUpdate{
     
     
     /**
-    * Requests the Nameserver-Record ID of a domain.
+    * Requests the Nameserver-Record info of a domain.
     *
-    * @param &$domrobot     : ref to connected domrobot
-    * @param String $domain : the domain for which the id is requested
-    * @return               : An array that contains the ids for ipv6 and ipv4 records. 
-    *                         Key for ipv4 = "ipv4" , key for ipv6 = "ipv6"
-    *                         Returns an element with value -1 if no fitting record was found.
+    * @param &$domrobot         : ref to connected domrobot
+    * @param DomainData &$domain : The DomainData for which the info should be requested. 
     */
-    private function requestRecordId(&$domrobot, string $domain):array {
-        $recordId = array("ipv4" => -1, "ipv6" => -1);
-        
+    private function requestRecordInfo(&$domrobot, DomainData &$domainData) {
         //determine domain-name and record-name.
-        $domain_exploded = explode(".", $domain);
+        $domain_exploded = explode(".", $domainData->domain);
         $domain_exploded_length = count($domain_exploded);
         $domain = $domain_exploded[$domain_exploded_length - 2] . "." . $domain_exploded[$domain_exploded_length - 1];
         unset($domain_exploded[$domain_exploded_length - 1]);
@@ -642,13 +560,14 @@ class DnsUpdate_INWX extends DnsUpdate{
         $res = $domrobot->call($obj,$meth,$params);
         foreach ($res['resData']['record'] as $record) {
             if ($record['type'] == 'A') {
-                $recordId["ipv4"] = $record['id'];
+                $domainData->ip4RecordID = $record['id'];
+                $domainData->ip4Old = $record['content'];
             }
             if ($record['type'] == 'AAAA') {
-                $recordId["ipv6"] = $record['id'];
+                $domainData->ip6RecordID = $record['id'];
+                $domainData->ip6Old = $record['content'];
             }
         }
-        return $recordId;
     }
     
     
@@ -667,7 +586,6 @@ class DnsUpdate_INWX extends DnsUpdate{
         $params['content'] = $ipAddr;
         $res = $domrobot->call($obj,$meth,$params);
     }
-
 }
 
     
